@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset='utf-8' />
+    <meta http-equiv="X-UA-Compatible" content="chrome=1" />
+    <meta name="description" content="2Checkout Ruby Tutorial : Rails Integration Tutorial" />
+
+    <link rel="stylesheet" type="text/css" media="screen" href="stylesheets/stylesheet.css">
+
+    <title>2Checkout Ruby Tutorial</title>
+  </head>
+
+  <body>
+
+    <!-- HEADER -->
+    <div id="header_wrap" class="outer">
+        <header class="inner">
+          <a id="forkme_banner" href="https://github.com/2Checkout/2checkout-rails-tutorial">View on GitHub</a>
+
+          <h1 id="project_title">2Checkout Ruby Tutorial</h1>
+          <h2 id="project_tagline">Rails Integration Tutorial</h2>
+
+            <section id="downloads">
+              <a class="zip_download_link" href="https://github.com/2Checkout/2checkout-rails-tutorial/zipball/master">Download this project as a .zip file</a>
+              <a class="tar_download_link" href="https://github.com/2Checkout/2checkout-rails-tutorial/tarball/master">Download this project as a tar.gz file</a>
+            </section>
+        </header>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div id="main_content_wrap" class="outer">
+      <section id="main_content" class="inner">
+        <h1>Tutorial</h1>
+
+<p>In this tutorial we will walk through integrating the 2Checkout payment method into an existing Rails 3.2.2 shopping cart application using the <a href="https://rubygems.org/gems/twocheckout">twocheckout gem</a>. The source for the example shopping cart application used in this tutorial can be accessed in this <a href="https://github.com/2checkout/2checkout-rails-tutorial/" title="2checkout-rails-tutorial">Github repository</a>.</p>
+
+<h2>Setting up the Example Application</h2>
+
+<p>We need an existing example application to demonstrate the integration so lets clone the 2checkout-rails-tutorial application.</p>
+
+<div class="highlight"><pre><span class="nv">$ </span>git clone https://github.com/2checkout/2checkout-rails-tutorial
+</pre></div>
+
+<p>This repository contains both an example before and after application so that we can follow along with the tutorial using the 2checkout-rails-example-before app and compare the result with the 2checkout-rails-example-after app. We can start by navigating to the 2checkout-rails-example-before directory.</p>
+
+<div class="highlight"><pre><span class="nv">$ </span><span class="nb">cd </span>2checkout-rails-tutorial/2checkout-rails-example-before
+</pre></div>
+
+<p>From here, we run <code>bundle install</code> to install the gems from the Gemfile.</p>
+
+<div class="highlight"><pre><span class="nv">$ </span>bundle install
+</pre></div>
+
+<p>Lets run the migrations and seed the database.</p>
+
+<div class="highlight"><pre><span class="nv">$ </span>rake db:migrate
+<span class="nv">$ </span>rake db:seed
+</pre></div>
+
+<p>Fire up the example application.</p>
+
+<div class="highlight"><pre><span class="nv">$ </span>rails s
+</pre></div>
+
+<p>View the application in your browser at
+<a href="http://localhost:3000">http://localhost:3000</a></p>
+
+<p><img src="http://github.com/2checkout/2checkout-rails-tutorial/raw/master/img/1.png" alt=""></p>
+
+<p>As you can see, we have an example shopping cart application that allows you to buy products. There are also a couple additional admin related features that you can access by basic authentication. Lets do this now by accessing <a href="http://localhost:3000/products/">http://localhost:3000/products/</a>. When prompted, enter 'admin' for the username and 'password' for the password. Now you can see menu items to "View/Edit Products" and "View/Edit Orders".</p>
+
+<p><img src="http://github.com/2checkout/2checkout-rails-tutorial/raw/master/img/2.png" alt=""></p>
+
+<p>We can test the current shopping cart functionality of the application by adding a couple of products to the cart.</p>
+
+<p><img src="http://github.com/2checkout/2checkout-rails-tutorial/raw/master/img/3.png" alt=""></p>
+
+<p>The cart calculates the total correctly and lists the appropriate lineitems and quantities, but the buyer cannot pay for their order. We will correct this by adding 2Checkout as a payment method in a few simple steps with the help of the twocheckout gem.</p>
+
+<h2>Adding the twocheckout gem</h2>
+
+<p>First, lets stop the development server in the terminal <code>Ctrl + C</code>. Now we can add the latest version of the twocheckout gem to our Gemfile.</p>
+
+<p><code>Gemfile</code></p>
+
+<div class="highlight"><pre><span class="n">gem</span> <span class="s1">'twocheckout'</span>
+</pre></div>
+
+<p>Next, we need to install the gem using the <code>bundle install</code> command in our terminal.</p>
+
+<div class="highlight"><pre><span class="nv">$ </span>bundle install
+</pre></div>
+
+<h2>Adding 2Checkout as a Payment Method</h2>
+
+<p>The first thing we will do is require the twocheckout gem in our environment.</p>
+
+<p><code>config/enviroment.rb</code></p>
+
+<div class="highlight"><pre><span class="nb">require</span> <span class="no">File</span><span class="o">.</span><span class="n">expand_path</span><span class="p">(</span><span class="s1">'../application'</span><span class="p">,</span> <span class="bp">__FILE__</span><span class="p">)</span>
+
+<span class="no">ExampleStore</span><span class="o">::</span><span class="no">Application</span><span class="o">.</span><span class="n">initialize!</span>
+<span class="nb">require</span> <span class="s1">'twocheckout'</span>
+</pre></div>
+
+<p>This allows us to use the class methods provided by the twocheckout gem in our application. Now we can add the 2Checkout payment method to our carts view.</p>
+
+<p><code>app/views/carts/show.html.erb</code></p>
+
+<div class="highlight"><pre><span class="o">&lt;</span><span class="nb">p</span> <span class="nb">id</span><span class="o">=</span><span class="s2">"notice"</span><span class="o">&gt;&lt;</span><span class="sx">%= notice %&gt;&lt;/p&gt;</span>
+
+<span class="sx">&lt;h1&gt;Shopping Cart&lt;/h1&gt;</span>
+
+<span class="sx">&lt;table id=</span><span class="s2">"cart"</span> <span class="n">class</span><span class="o">=</span><span class="s2">"table table-striped"</span><span class="o">&gt;</span>
+  <span class="o">&lt;</span><span class="n">tr</span><span class="o">&gt;</span>
+    <span class="o">&lt;</span><span class="n">th</span><span class="o">&gt;</span><span class="no">Product</span><span class="o">&lt;</span><span class="sr">/th&gt;</span>
+<span class="sr">    &lt;th&gt;Qty&lt;/</span><span class="n">th</span><span class="o">&gt;</span>
+    <span class="o">&lt;</span><span class="n">th</span> <span class="n">class</span><span class="o">=</span><span class="s2">"price"</span><span class="o">&gt;</span><span class="no">Unit</span> <span class="no">Price</span><span class="o">&lt;</span><span class="sr">/th&gt;</span>
+<span class="sr">    &lt;th class="price"&gt;Full Price&lt;/</span><span class="n">th</span><span class="o">&gt;</span>
+  <span class="o">&lt;</span><span class="sr">/tr&gt;</span>
+<span class="sr">  &lt;% for line_item in @cart.line_items %&gt;</span>
+<span class="sr">    &lt;tr class="&lt;%= cycle :odd, :even %&gt;"&gt;</span>
+<span class="sr">      &lt;td&gt;&lt;%=h line_item.product.name %&gt;&lt;/</span><span class="n">td</span><span class="o">&gt;</span>
+      <span class="o">&lt;</span><span class="n">td</span> <span class="n">class</span><span class="o">=</span><span class="s2">"qty"</span><span class="o">&gt;&lt;</span><span class="sx">%= line_item.quantity %&gt;&lt;/td&gt;</span>
+<span class="sx">      &lt;td class=</span><span class="s2">"price"</span><span class="o">&gt;&lt;</span><span class="sx">%= number_to_currency(line_item.unit_price) %&gt;&lt;/td&gt;</span>
+<span class="sx">      &lt;td class=</span><span class="s2">"price"</span><span class="o">&gt;&lt;</span><span class="sx">%= number_to_currency(line_item.full_price) %&gt;&lt;/td&gt;</span>
+<span class="sx">    &lt;/tr&gt;</span>
+<span class="sx">  &lt;% end %&gt;</span>
+<span class="sx">  &lt;tr&gt;</span>
+<span class="sx">    &lt;td class=</span><span class="s2">"total price"</span> <span class="n">colspan</span><span class="o">=</span><span class="s2">"4"</span><span class="o">&gt;</span>
+      <span class="no">Total</span><span class="p">:</span> <span class="o">&lt;</span><span class="sx">%= number_to_currency @cart.total_price %&gt;</span>
+<span class="sx">    &lt;/td&gt;</span>
+<span class="sx">  &lt;/tr&gt;</span>
+<span class="sx">&lt;/table&gt;</span>
+<span class="sx">&lt;% @params =</span> <span class="p">{</span><span class="s1">'sid'</span> <span class="o">=&gt;</span> <span class="mi">1817037</span><span class="p">,</span> <span class="s1">'mode'</span> <span class="o">=&gt;</span> <span class="s1">'2CO'</span><span class="p">,</span> <span class="s1">'merchant_order_id'</span> <span class="o">=&gt;</span> <span class="vi">@cart</span><span class="o">.</span><span class="n">id</span><span class="p">}</span> <span class="sx">%&gt;</span>
+<span class="sx">&lt;% i=0 %&gt;</span>
+<span class="o">&lt;</span><span class="sx">% for </span><span class="n">line_item</span> <span class="k">in</span> <span class="vi">@cart</span><span class="o">.</span><span class="n">line_items</span> <span class="sx">%&gt;</span>
+<span class="sx">    &lt;% @params['li_'+i.to_s+'_product_id'] = line_item.product.id.to_s %&gt;</span>
+    <span class="o">&lt;</span><span class="sx">% @params['li_'+i.to_s+'_name'] </span><span class="o">=</span> <span class="n">line_item</span><span class="o">.</span><span class="n">product</span><span class="o">.</span><span class="n">name</span> <span class="sx">%&gt;</span>
+<span class="sx">    &lt;% @params['li_'+i.to_s+'_price'] = line_item.product.price %&gt;</span>
+    <span class="o">&lt;</span><span class="sx">% @params['li_'+i.to_s+'_quantity'] </span><span class="o">=</span> <span class="n">line_item</span><span class="o">.</span><span class="n">quantity</span><span class="o">.</span><span class="n">to_s</span> <span class="sx">%&gt;</span>
+<span class="sx">    &lt;% i+=1 %&gt;</span>
+<span class="o">&lt;</span><span class="sx">% end %&gt;</span>
+
+<span class="sx">&lt;% @form = Twocheckout::Checkout.form(@params, "Pay for your Order") %&gt;</span>
+<span class="o">&lt;%=</span> <span class="vi">@form</span><span class="o">.</span><span class="n">html_safe</span> <span class="o">%&gt;</span>
+</pre></div>
+
+<p>Lets take a second to look at what we did here. The <code>@params</code> hash was created with the <code>sid</code>_(2Checkout Account Number)_, <code>mode</code>_(2Checkout Parameter Set)_ and <code>merchant_order_id</code>_(Cart Identifier)_ key-value pairs.</p>
+
+<div class="highlight"><pre><span class="o">&lt;</span><span class="sx">% @params </span><span class="o">=</span> <span class="p">{</span>
+  <span class="s1">'sid'</span> <span class="o">=&gt;</span> <span class="mi">1817037</span><span class="p">,</span>
+  <span class="s1">'mode'</span> <span class="o">=&gt;</span> <span class="s1">'2CO'</span><span class="p">,</span>
+  <span class="s1">'merchant_order_id'</span> <span class="o">=&gt;</span> <span class="vi">@cart</span><span class="o">.</span><span class="n">id</span>
+<span class="p">}</span> <span class="o">%&gt;</span>
+</pre></div>
+
+<p>Next we loop through the lineitems in our <a href="https://github.com/cart" class="user-mention">@cart</a> object and add the necessary 2Checkout lineitem parameters to our <code>@params</code> hash.</p>
+
+<div class="highlight"><pre><span class="o">&lt;</span><span class="sx">% i=0 %&gt;</span>
+<span class="sx">&lt;% for line_item in @cart.line_items %&gt;</span>
+    <span class="o">&lt;</span><span class="sx">% @params['li_'+i.to_s+'_product_id'] </span><span class="o">=</span> <span class="n">line_item</span><span class="o">.</span><span class="n">product</span><span class="o">.</span><span class="n">id</span><span class="o">.</span><span class="n">to_s</span> <span class="sx">%&gt;</span>
+<span class="sx">    &lt;% @params['li_'+i.to_s+'_name'] = line_item.product.name %&gt;</span>
+    <span class="o">&lt;</span><span class="sx">% @params['li_'+i.to_s+'_price'] </span><span class="o">=</span> <span class="n">line_item</span><span class="o">.</span><span class="n">product</span><span class="o">.</span><span class="n">price</span> <span class="sx">%&gt;</span>
+<span class="sx">    &lt;% @params['li_'+i.to_s+'_quantity'] = line_item.quantity.to_s %&gt;</span>
+    <span class="o">&lt;</span><span class="sx">% i+=1 %&gt;</span>
+<span class="sx">&lt;% end %&gt;</span>
+</pre></div>
+
+<p>Now that our hash has all of the 2Checkout sale parameters, we will use the <code>Twocheckout::Checkout.form()</code> method to generate our payment form.</p>
+
+<div class="highlight"><pre><span class="o">&lt;</span><span class="sx">% @form </span><span class="o">=</span> <span class="no">Twocheckout</span><span class="o">::</span><span class="no">Checkout</span><span class="o">.</span><span class="n">form</span><span class="p">(</span><span class="vi">@params</span><span class="p">,</span> <span class="s2">"Pay for your Order"</span><span class="p">)</span> <span class="sx">%&gt;</span>
+<span class="sx">&lt;%= @form.html_safe %&gt;</span>
+</pre></div>
+
+<p>Lets test this and make sure we setup everything correctly by loading up our server again and adding some products to our cart.</p>
+
+<p><img src="http://github.com/2checkout/2checkout-rails-tutorial/raw/master/img/3.png" alt=""></p>
+
+<p>We now have a "Pay for your Order" button that when clicked, passes the buyer to 2Checkout to make their payment.</p>
+
+<p><img src="http://github.com/2checkout/2checkout-rails-tutorial/raw/master/img/4.png" alt=""></p>
+
+<h2>Adding support for the Passback from 2Checkout</h2>
+
+<p>Once the sale is processed successfully, 2Checkout passes the buyer and the sale parameters back to the approved URL that you setup on the Site Management page in your 2Checkout account. We don't have a method yet to handle the passback so lets go ahead and create one in our carts controller.</p>
+
+<p><code>app/conrollers/carts_controller.rb</code></p>
+
+<div class="highlight"><pre><span class="k">class</span> <span class="nc">CartsController</span> <span class="o">&lt;</span> <span class="no">ApplicationController</span>
+
+  <span class="k">def</span> <span class="nf">index</span>
+    <span class="vi">@carts</span> <span class="o">=</span> <span class="no">Cart</span><span class="o">.</span><span class="n">all</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">show</span>
+    <span class="vi">@cart</span> <span class="o">=</span> <span class="n">current_cart</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">new</span>
+    <span class="vi">@cart</span> <span class="o">=</span> <span class="no">Cart</span><span class="o">.</span><span class="n">new</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">edit</span>
+    <span class="vi">@cart</span> <span class="o">=</span> <span class="no">Cart</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="ss">:id</span><span class="o">]</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">create</span>
+    <span class="vi">@cart</span> <span class="o">=</span> <span class="no">Cart</span><span class="o">.</span><span class="n">new</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="ss">:cart</span><span class="o">]</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">update</span>
+    <span class="vi">@cart</span> <span class="o">=</span> <span class="no">Cart</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="ss">:id</span><span class="o">]</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">destroy</span>
+    <span class="vi">@cart</span> <span class="o">=</span> <span class="no">Cart</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="ss">:id</span><span class="o">]</span><span class="p">)</span>
+    <span class="vi">@cart</span><span class="o">.</span><span class="n">destroy</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">return</span>
+    <span class="vi">@notification</span> <span class="o">=</span> <span class="no">Twocheckout</span><span class="o">::</span><span class="no">ValidateResponse</span><span class="o">.</span><span class="n">purchase</span><span class="p">({</span><span class="ss">:sid</span> <span class="o">=&gt;</span> <span class="mi">1817037</span><span class="p">,</span> <span class="ss">:secret</span> <span class="o">=&gt;</span> <span class="s2">"tango"</span><span class="p">,</span> <span class="ss">:order_number</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'order_number'</span><span class="o">]</span><span class="p">,</span> <span class="ss">:total</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'total'</span><span class="o">]</span><span class="p">,</span> <span class="ss">:key</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'key'</span><span class="o">]</span><span class="p">})</span>
+
+    <span class="vi">@cart</span> <span class="o">=</span> <span class="no">Cart</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="s1">'merchant_order_id'</span><span class="o">]</span><span class="p">)</span>
+    <span class="k">begin</span>
+      <span class="k">if</span> <span class="vi">@notification</span><span class="o">[</span><span class="ss">:code</span><span class="o">]</span> <span class="o">==</span> <span class="s2">"PASS"</span>
+        <span class="vi">@cart</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="s1">'success'</span>
+        <span class="vi">@cart</span><span class="o">.</span><span class="n">purchased_at</span> <span class="o">=</span> <span class="no">Time</span><span class="o">.</span><span class="n">now</span>
+        <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="ss">:total</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'total'</span><span class="o">]</span><span class="p">,</span>
+          <span class="ss">:card_holder_name</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'card_holder_name'</span><span class="o">]</span><span class="p">,</span>
+          <span class="ss">:status</span> <span class="o">=&gt;</span> <span class="s1">'pending'</span><span class="p">,</span>
+          <span class="ss">:order_number</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'order_number'</span><span class="o">]</span><span class="p">)</span>
+        <span class="n">reset_session</span>
+        <span class="n">flash</span><span class="o">[</span><span class="ss">:notice</span><span class="o">]</span> <span class="o">=</span> <span class="s2">"Your order was successful! We will contact you directly to confirm before delivery."</span>
+        <span class="n">redirect_to</span> <span class="n">root_url</span>
+      <span class="k">else</span>
+        <span class="vi">@cart</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="s2">"failed"</span>
+        <span class="n">flash</span><span class="o">[</span><span class="ss">:notice</span><span class="o">]</span> <span class="o">=</span> <span class="s2">"Error validating order, please contact us for assistance."</span>
+        <span class="n">redirect_to</span> <span class="n">root_url</span>
+      <span class="k">end</span>
+      <span class="k">ensure</span>
+      <span class="vi">@cart</span><span class="o">.</span><span class="n">save</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+
+</pre></div>
+
+<p>In our new <code>return</code> method we validate the MD5 hash passed back by 2Checkout using the <code>Twocheckout::ValidateResponse.purchase</code> method. To use this method, we pass our <code>sid</code>_(2Checkout Account Number)_ and <code>secret</code>_(2Checkout Secret Word)_ in the <code>credentials{}</code> hash as the first argument and pass the <code>params</code> as the second argument.</p>
+
+<div class="highlight"><pre>  <span class="vi">@notification</span> <span class="o">=</span> <span class="no">Twocheckout</span><span class="o">::</span><span class="no">ValidateResponse</span><span class="o">.</span><span class="n">purchase</span><span class="p">({</span><span class="ss">:sid</span> <span class="o">=&gt;</span> <span class="mi">1817037</span><span class="p">,</span> <span class="ss">:secret</span> <span class="o">=&gt;</span> <span class="s2">"tango"</span><span class="p">,</span> <span class="ss">:order_number</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'order_number'</span><span class="o">]</span><span class="p">,</span> <span class="ss">:total</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'total'</span><span class="o">]</span><span class="p">,</span> <span class="ss">:key</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'key'</span><span class="o">]</span><span class="p">})</span>
+</pre></div>
+
+<p>We find the buyer's cart using the cart id passed back through the <code>merchant_order_id</code> parameter.</p>
+
+<div class="highlight"><pre><span class="vi">@cart</span> <span class="o">=</span> <span class="no">Cart</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="s1">'merchant_order_id'</span><span class="o">]</span><span class="p">)</span>
+</pre></div>
+
+<p>We then check the response from our <code>Twocheckout::ValidateResponse.purchase</code> method. If successful <em>(MD5 matches)</em>, the cart status is set to "success", a new order is created and the buyer is redirected to the site with a message indicating that their order went through successfully. If it fails, <em>(MD5 does not match)</em>, the cart status is set to "failed" and the buyer is redirected to the site with a message indicating that their order failed.</p>
+
+<div class="highlight"><pre>  <span class="k">begin</span>
+    <span class="k">if</span> <span class="vi">@notification</span><span class="o">[</span><span class="ss">:code</span><span class="o">]</span> <span class="o">==</span> <span class="s2">"PASS"</span>
+      <span class="vi">@cart</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="s1">'success'</span>
+      <span class="vi">@cart</span><span class="o">.</span><span class="n">purchased_at</span> <span class="o">=</span> <span class="no">Time</span><span class="o">.</span><span class="n">now</span>
+      <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="ss">:total</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'total'</span><span class="o">]</span><span class="p">,</span>
+        <span class="ss">:card_holder_name</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'card_holder_name'</span><span class="o">]</span><span class="p">,</span>
+        <span class="ss">:status</span> <span class="o">=&gt;</span> <span class="s1">'pending'</span><span class="p">,</span>
+        <span class="ss">:order_number</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'order_number'</span><span class="o">]</span><span class="p">)</span>
+      <span class="n">reset_session</span>
+      <span class="n">flash</span><span class="o">[</span><span class="ss">:notice</span><span class="o">]</span> <span class="o">=</span> <span class="s2">"Your order was successful! We will contact you directly to confirm before delivery."</span>
+      <span class="n">redirect_to</span> <span class="n">root_url</span>
+    <span class="k">else</span>
+      <span class="vi">@cart</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="s2">"failed"</span>
+      <span class="n">flash</span><span class="o">[</span><span class="ss">:notice</span><span class="o">]</span> <span class="o">=</span> <span class="s2">"Error validating order, please contact us for assistance."</span>
+      <span class="n">redirect_to</span> <span class="n">root_url</span>
+    <span class="k">end</span>
+    <span class="k">ensure</span>
+    <span class="vi">@cart</span><span class="o">.</span><span class="n">save</span>
+  <span class="k">end</span>
+</pre></div>
+
+<p>Lets go ahead and create a route for this method.</p>
+
+<p><code>config/routes.rb</code></p>
+
+<div class="highlight"><pre><span class="no">ExampleStore</span><span class="o">::</span><span class="no">Application</span><span class="o">.</span><span class="n">routes</span><span class="o">.</span><span class="n">draw</span> <span class="k">do</span>
+  <span class="n">resources</span> <span class="ss">:carts</span>
+
+  <span class="n">resources</span> <span class="ss">:line_items</span>
+
+  <span class="n">resources</span> <span class="ss">:categories</span>
+
+  <span class="n">resources</span> <span class="ss">:orders</span>
+
+  <span class="n">resources</span> <span class="ss">:products</span>
+
+  <span class="n">match</span> <span class="s1">'/return'</span><span class="o">=&gt;</span><span class="s1">'carts#return'</span>
+
+  <span class="n">root</span> <span class="ss">:to</span> <span class="o">=&gt;</span> <span class="s1">'categories#show'</span><span class="p">,</span> <span class="ss">:id</span> <span class="o">=&gt;</span> <span class="mi">1</span>
+
+<span class="k">end</span>
+</pre></div>
+
+<p>Now that we have our return URL route we need to set the path as your 2Checkout account's approved URL. Lets login to our 2Checkout account and navigate to the Account tab and Site Management subtab.</p>
+
+<p><img src="http://github.com/2checkout/2checkout-rails-tutorial/raw/master/img/5.png" alt=""></p>
+
+<p>From here we can set our new route as the approved URL, select Header Redirect and save the changes.</p>
+
+<p>Lets acid test our application with a live sale!</p>
+
+<p>Start up our server <em>(If it's not started already.)</em></p>
+
+<div class="highlight"><pre><span class="nv">$ </span>rails s
+</pre></div>
+
+<p>Add some products to our cart and click the <strong>Proceed to Checkout</strong> button and complete the order with 2Checkout.</p>
+
+<p><img src="http://github.com/2checkout/2checkout-rails-tutorial/raw/master/img/6.png" alt=""></p>
+
+<p>We now have our Rails application properly integrated with 2Checkout and can move on to adding additional functionality to check the fraud review result.</p>
+
+<h2>INS Notifications</h2>
+
+<p>2Checkout will send messages on each event that can occur on a sale.</p>
+
+<p><a href="https://www.2checkout.com/static/va/documentation/INS/index.html">2Checkout INS Documentation</a></p>
+
+<p>For this application, we want to know when the sale passes 2Checkout's fraud review, so we will create a new method to handle this message in our orders controller.</p>
+
+<p><code>app/conrollers/orders_controller.rb</code></p>
+
+<div class="highlight"><pre><span class="k">class</span> <span class="nc">OrdersController</span> <span class="o">&lt;</span> <span class="no">AdminController</span>
+  <span class="n">skip_filter</span> <span class="ss">:authenticate</span><span class="p">,</span> <span class="ss">:only</span> <span class="o">=&gt;</span> <span class="o">[</span><span class="ss">:notification</span><span class="o">]</span>
+
+  <span class="k">def</span> <span class="nf">index</span>
+    <span class="vi">@orders</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">all</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">show</span>
+    <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="ss">:id</span><span class="o">]</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">new</span>
+    <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">new</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">edit</span>
+    <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="ss">:id</span><span class="o">]</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">create</span>
+    <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">new</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="ss">:total</span><span class="p">,</span> <span class="ss">:card_holder_name</span><span class="p">,</span> <span class="ss">:order_number</span><span class="o">]</span><span class="p">)</span>
+    <span class="n">flash</span><span class="o">[</span><span class="ss">:notice</span><span class="o">]</span> <span class="o">=</span> <span class="s2">"Order Created Successfully."</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">update</span>
+    <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="ss">:id</span><span class="o">]</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">destroy</span>
+    <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="ss">:id</span><span class="o">]</span><span class="p">)</span>
+    <span class="vi">@order</span><span class="o">.</span><span class="n">destroy</span>
+    <span class="n">redirect_to</span> <span class="n">orders_path</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">notification</span>
+    <span class="vi">@notification</span> <span class="o">=</span> <span class="no">Twocheckout</span><span class="o">::</span><span class="no">ValidateResponse</span><span class="o">.</span><span class="n">notification</span><span class="p">({</span><span class="ss">:sale_id</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'sale_id'</span><span class="o">]</span><span class="p">,</span> <span class="ss">:vendor_id</span> <span class="o">=&gt;</span> <span class="mi">1817037</span><span class="p">,</span>
+      <span class="ss">:invoice_id</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'invoice_id'</span><span class="o">]</span><span class="p">,</span> <span class="ss">:secret</span> <span class="o">=&gt;</span> <span class="s2">"tango"</span><span class="p">,</span> <span class="ss">:md5_hash</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'md5_hash'</span><span class="o">]</span><span class="p">})</span>
+    <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">find_by_order_number</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="s1">'sale_id'</span><span class="o">]</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">params</span><span class="o">[</span><span class="s1">'message_type'</span><span class="o">]</span> <span class="o">==</span> <span class="s2">"FRAUD_STATUS_CHANGED"</span>
+      <span class="k">begin</span>
+        <span class="k">if</span> <span class="vi">@notification</span><span class="o">[</span><span class="s1">'code'</span><span class="o">]</span> <span class="o">==</span> <span class="s2">"PASS"</span> <span class="ow">and</span> <span class="n">params</span><span class="o">[</span><span class="s1">'fraud_status'</span><span class="o">]</span> <span class="o">==</span> <span class="s2">"pass"</span>
+          <span class="vi">@order</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="s2">"success"</span>
+          <span class="n">render</span> <span class="ss">:text</span> <span class="o">=&gt;</span><span class="s2">"Fraud Status Passed"</span>
+        <span class="k">else</span>
+          <span class="vi">@order</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="s2">"failed"</span>
+          <span class="n">render</span> <span class="ss">:text</span> <span class="o">=&gt;</span><span class="s2">"Fraud Status Failed or MD5 Hash does not match!"</span>
+        <span class="k">end</span>
+        <span class="k">ensure</span>
+        <span class="vi">@order</span><span class="o">.</span><span class="n">save</span>
+      <span class="k">end</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+</pre></div>
+
+<p>In our new <code>notification</code> method we validate the MD5 hash passed back by 2Checkout using the <code>Twocheckout::Ins.request()</code> method. To use this method, we pass our <code>sid</code>_(2Checkout Account Number)_ and <code>secret</code>_(2Checkout Secret Word)_ in the <code>credentials{}</code> hash as the first argument and pass the <code>params</code> as the second argument. This library returns a JSON response so we will also decode the JSON to a Hash.</p>
+
+<div class="highlight"><pre><span class="vi">@notification</span> <span class="o">=</span> <span class="no">Twocheckout</span><span class="o">::</span><span class="no">ValidateResponse</span><span class="o">.</span><span class="n">notification</span><span class="p">({</span><span class="ss">:sale_id</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'sale_id'</span><span class="o">]</span><span class="p">,</span> <span class="ss">:vendor_id</span> <span class="o">=&gt;</span> <span class="mi">1817037</span><span class="p">,</span> <span class="ss">:invoice_id</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'invoice_id'</span><span class="o">]</span><span class="p">,</span> <span class="ss">:secret</span> <span class="o">=&gt;</span> <span class="s2">"tango"</span><span class="p">,</span> <span class="ss">:md5_hash</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">[</span><span class="s1">'md5_hash'</span><span class="o">]</span><span class="p">})</span>
+</pre></div>
+
+<p>We find the buyer's order using the sale number passed back through the <code>sale_id</code> parameter.</p>
+
+<div class="highlight"><pre>  <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">find_by_order_number</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="s1">'sale_id'</span><span class="o">]</span><span class="p">)</span>
+</pre></div>
+
+<p>We then check the response from our <code>Twocheckout::Ins.request()</code> method. If successful <em>(MD5 matches)</em> and the <code>fraud_status</code> equals "pass", the order status is set to "success" and for debugging purposes we flash a message indicating that the sale passed fraud review. If it fails, <em>(MD5 does not match)</em>, the order status is set to "failed" and we flash a message indicating that the MD5 hash did not match or the sale failed fraud review.</p>
+
+<div class="highlight"><pre>  <span class="k">if</span> <span class="n">params</span><span class="o">[</span><span class="s1">'message_type'</span><span class="o">]</span> <span class="o">==</span> <span class="s2">"FRAUD_STATUS_CHANGED"</span>
+    <span class="k">begin</span>
+      <span class="k">if</span> <span class="vi">@notification</span><span class="o">[</span><span class="s1">'code'</span><span class="o">]</span> <span class="o">==</span> <span class="s2">"PASS"</span> <span class="ow">and</span> <span class="n">params</span><span class="o">[</span><span class="s1">'fraud_status'</span><span class="o">]</span> <span class="o">==</span> <span class="s2">"pass"</span>
+        <span class="vi">@order</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="s2">"success"</span>
+        <span class="n">render</span> <span class="ss">:text</span> <span class="o">=&gt;</span><span class="s2">"Fraud Status Passed"</span>
+      <span class="k">else</span>
+        <span class="vi">@order</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="s2">"failed"</span>
+        <span class="n">render</span> <span class="ss">:text</span> <span class="o">=&gt;</span><span class="s2">"Fraud Status Failed or MD5 Hash does not match!"</span>
+      <span class="k">end</span>
+      <span class="k">ensure</span>
+      <span class="vi">@order</span><span class="o">.</span><span class="n">save</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+</pre></div>
+
+<p>Lets go ahead and create a route for this method.</p>
+
+<p><code>config/routes.rb</code></p>
+
+<div class="highlight"><pre><span class="no">ExampleStore</span><span class="o">::</span><span class="no">Application</span><span class="o">.</span><span class="n">routes</span><span class="o">.</span><span class="n">draw</span> <span class="k">do</span>
+  <span class="n">resources</span> <span class="ss">:carts</span>
+
+  <span class="n">resources</span> <span class="ss">:line_items</span>
+
+  <span class="n">resources</span> <span class="ss">:categories</span>
+
+  <span class="n">resources</span> <span class="ss">:orders</span>
+
+  <span class="n">resources</span> <span class="ss">:products</span>
+
+  <span class="n">match</span> <span class="s1">'/return'</span><span class="o">=&gt;</span><span class="s1">'carts#return'</span>
+
+  <span class="n">match</span> <span class="s1">'/notification'</span> <span class="o">=&gt;</span> <span class="s1">'orders#notification'</span>
+
+  <span class="n">root</span> <span class="ss">:to</span> <span class="o">=&gt;</span> <span class="s1">'categories#show'</span><span class="p">,</span> <span class="ss">:id</span> <span class="o">=&gt;</span> <span class="mi">1</span>
+
+<span class="k">end</span>
+</pre></div>
+
+<p>Now we can setup our Notification URL path for the Fraud Status Changed message to "http://localhost:3000/notification" and enable the message under the Notifications page in our 2Checkout admin.</p>
+
+<p><img src="http://github.com/2checkout/2checkout-rails-tutorial/raw/master/img/7.png" alt=""></p>
+
+<p>Lets test our notification function. Now there are a couple ways to go about this. If you are not running the site locally, you can wait for the notifications to come on a live sale. In this tutorial, we are running the site locally so we will use the <a href="http://developers.2checkout.com/inss">INS testing tool</a> to test the messages. Remember the MD5 hash must match so for easy testing, you must compute the hash based on the like below:</p>
+
+<p><code>UPPERCASE(MD5_ENCRYPTED(sale_id + vendor_id + invoice_id + Secret Word))</code></p>
+
+<p>You can just use an <a href="https://www.google.com/webhp?q=md5+generator">online MD5 Hash generator</a> and convert it to uppercase.</p>
+
+<h2>Back Office API</h2>
+
+<p>2Checkout's Back Office API provides us with the ability to make calls from our application to preform sale actions, such as stopping a recurring sale or issuing a refund. <em>(Please visit the <a href="https://www.2checkout.com/documentation/api/">2Checkout API documentation</a> for instructions on creating an API user)</em>. For our example application, we will setup the ability to refund a sale from the admin on the orders#show page in case the buyer's order is not in stock.</p>
+
+<p>To accomplish this we will create a new refund method in the orders controller and update the orders/index view to include a refund button for each sale.</p>
+
+<p><code>app/conrollers/orders_controller.rb</code></p>
+
+<div class="highlight"><pre><span class="k">class</span> <span class="nc">OrdersController</span> <span class="o">&lt;</span> <span class="no">AdminController</span>
+  <span class="n">skip_filter</span> <span class="ss">:authenticate</span><span class="p">,</span> <span class="ss">:only</span> <span class="o">=&gt;</span> <span class="o">[</span><span class="ss">:notification</span><span class="o">]</span>
+
+  <span class="k">def</span> <span class="nf">index</span>
+    <span class="vi">@orders</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">all</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">show</span>
+    <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="ss">:id</span><span class="o">]</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">new</span>
+    <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">new</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">edit</span>
+    <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="ss">:id</span><span class="o">]</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">create</span>
+    <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">new</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="ss">:total</span><span class="p">,</span> <span class="ss">:card_holder_name</span><span class="p">,</span> <span class="ss">:order_number</span><span class="o">]</span><span class="p">)</span>
+    <span class="n">flash</span><span class="o">[</span><span class="ss">:notice</span><span class="o">]</span> <span class="o">=</span> <span class="s2">"Order Created Successfully."</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">update</span>
+    <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="ss">:id</span><span class="o">]</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">destroy</span>
+    <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="ss">:id</span><span class="o">]</span><span class="p">)</span>
+    <span class="vi">@order</span><span class="o">.</span><span class="n">destroy</span>
+    <span class="n">redirect_to</span> <span class="n">orders_path</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">notification</span>
+    <span class="vi">@notification</span> <span class="o">=</span> <span class="no">Twocheckout</span><span class="o">::</span><span class="no">Ins</span><span class="o">.</span><span class="n">request</span><span class="p">({</span><span class="ss">:credentials</span> <span class="o">=&gt;</span> <span class="p">{</span><span class="s1">'sid'</span> <span class="o">=&gt;</span> <span class="s1">'1817037'</span><span class="p">,</span> <span class="s1">'secret'</span> <span class="o">=&gt;</span> <span class="s1">'tango'</span><span class="p">},</span> <span class="ss">:params</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="p">})</span>
+    <span class="vi">@notification</span> <span class="o">=</span> <span class="no">JSON</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="vi">@notification</span><span class="p">)</span>
+    <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">find_by_order_number</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="s1">'sale_id'</span><span class="o">]</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">params</span><span class="o">[</span><span class="s1">'message_type'</span><span class="o">]</span> <span class="o">==</span> <span class="s2">"FRAUD_STATUS_CHANGED"</span>
+      <span class="k">begin</span>
+        <span class="k">if</span> <span class="vi">@notification</span><span class="o">[</span><span class="s1">'code'</span><span class="o">]</span> <span class="o">==</span> <span class="s2">"PASS"</span> <span class="ow">and</span> <span class="n">params</span><span class="o">[</span><span class="s1">'fraud_status'</span><span class="o">]</span> <span class="o">==</span> <span class="s2">"pass"</span>
+          <span class="vi">@order</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="s2">"success"</span>
+          <span class="n">render</span> <span class="ss">:text</span> <span class="o">=&gt;</span><span class="s2">"Fraud Status Passed"</span>
+        <span class="k">else</span>
+          <span class="vi">@order</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="s2">"failed"</span>
+          <span class="n">render</span> <span class="ss">:text</span> <span class="o">=&gt;</span><span class="s2">"Fraud Status Failed or MD5 Hash does not match!"</span>
+        <span class="k">end</span>
+        <span class="k">ensure</span>
+        <span class="vi">@order</span><span class="o">.</span><span class="n">save</span>
+      <span class="k">end</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">refund</span>
+    <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="ss">:id</span><span class="o">]</span><span class="p">)</span>
+    <span class="k">begin</span>
+      <span class="no">Twocheckout</span><span class="o">::</span><span class="no">API</span><span class="o">.</span><span class="n">credentials</span> <span class="o">=</span> <span class="p">{</span> <span class="ss">:username</span> <span class="o">=&gt;</span> <span class="s1">'APIuser1817037'</span><span class="p">,</span> <span class="ss">:password</span> <span class="o">=&gt;</span> <span class="s1">'APIpass1817037'</span> <span class="p">}</span>
+      <span class="vi">@sale</span> <span class="o">=</span> <span class="no">Twocheckout</span><span class="o">::</span><span class="no">Sale</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="ss">:sale_id</span> <span class="o">=&gt;</span> <span class="vi">@order</span><span class="o">.</span><span class="n">order_number</span><span class="p">)</span>
+      <span class="vi">@response</span> <span class="o">=</span> <span class="vi">@sale</span><span class="o">.</span><span class="n">refund!</span><span class="p">({</span><span class="ss">:comment</span> <span class="o">=&gt;</span> <span class="s2">"Item(s) not available"</span><span class="p">,</span> <span class="ss">:category</span> <span class="o">=&gt;</span> <span class="mi">6</span><span class="p">})</span>
+      <span class="vi">@order</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="s2">"refunded"</span>
+      <span class="vi">@order</span><span class="o">.</span><span class="n">save</span>
+      <span class="n">flash</span><span class="o">[</span><span class="ss">:notice</span><span class="o">]</span> <span class="o">=</span> <span class="vi">@response</span><span class="o">[</span><span class="ss">:response_message</span><span class="o">]</span>
+      <span class="n">redirect_to</span> <span class="n">orders_path</span>
+    <span class="k">rescue</span> <span class="no">Exception</span> <span class="o">=&gt;</span> <span class="n">e</span>
+      <span class="n">flash</span><span class="o">[</span><span class="ss">:notice</span><span class="o">]</span> <span class="o">=</span> <span class="n">e</span><span class="o">.</span><span class="n">message</span>
+      <span class="n">redirect_to</span> <span class="n">orders_path</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+</pre></div>
+
+<p>In our new refund method, we find the order and assign it to a new instance variable.</p>
+
+<div class="highlight"><pre>  <span class="vi">@order</span> <span class="o">=</span> <span class="no">Order</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">params</span><span class="o">[</span><span class="ss">:id</span><span class="o">]</span><span class="p">)</span>
+</pre></div>
+
+<p>We set our 2Checkout API username and password using the <code>Twocheckout::API.credentials</code> method. We get the sale object from 2Checkout using the <code>Twocheckout::Sale.find</code> method. Then we call the <code>refund</code> method on the sale object.</p>
+
+<div class="highlight"><pre><span class="no">Twocheckout</span><span class="o">::</span><span class="no">API</span><span class="o">.</span><span class="n">credentials</span> <span class="o">=</span> <span class="p">{</span> <span class="ss">:username</span> <span class="o">=&gt;</span> <span class="s1">'APIuser1817037'</span><span class="p">,</span> <span class="ss">:password</span> <span class="o">=&gt;</span> <span class="s1">'APIpass1817037'</span> <span class="p">}</span>
+<span class="vi">@sale</span> <span class="o">=</span> <span class="no">Twocheckout</span><span class="o">::</span><span class="no">Sale</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="ss">:sale_id</span> <span class="o">=&gt;</span> <span class="vi">@order</span><span class="o">.</span><span class="n">order_number</span><span class="p">)</span>
+<span class="vi">@response</span> <span class="o">=</span> <span class="vi">@sale</span><span class="o">.</span><span class="n">refund!</span><span class="p">({</span><span class="ss">:comment</span> <span class="o">=&gt;</span> <span class="s2">"Item(s) not available"</span><span class="p">,</span> <span class="ss">:category</span> <span class="o">=&gt;</span> <span class="mi">6</span><span class="p">})</span>
+</pre></div>
+
+<p>You will notice that we are checking for an exception here as well. 2Checkout will return an exception if the refund cannot be issued on this sale. If the response is successful, we redirect the admin to the orders index page and flash the success response message from 2Checkout's API. If the refund fails, we redirect the admin to the orders index page and flash the error response message from 2Checkout's API.</p>
+
+<p>Let's setup the route for this method.</p>
+
+<p><code>config/routes.rb</code></p>
+
+<div class="highlight"><pre><span class="no">ExampleStore</span><span class="o">::</span><span class="no">Application</span><span class="o">.</span><span class="n">routes</span><span class="o">.</span><span class="n">draw</span> <span class="k">do</span>
+  <span class="n">resources</span> <span class="ss">:carts</span>
+
+  <span class="n">resources</span> <span class="ss">:line_items</span>
+
+  <span class="n">resources</span> <span class="ss">:categories</span>
+
+  <span class="n">resources</span> <span class="ss">:orders</span>
+
+  <span class="n">resources</span> <span class="ss">:products</span>
+
+  <span class="n">match</span> <span class="s1">'/return'</span><span class="o">=&gt;</span><span class="s1">'carts#return'</span>
+
+  <span class="n">match</span> <span class="s1">'/notification'</span> <span class="o">=&gt;</span> <span class="s1">'orders#notification'</span>
+
+  <span class="n">match</span> <span class="s1">'orders/:id/refund'</span> <span class="o">=&gt;</span> <span class="s1">'orders#refund'</span><span class="p">,</span> <span class="ss">:as</span> <span class="o">=&gt;</span> <span class="s1">'refund'</span>
+
+  <span class="n">root</span> <span class="ss">:to</span> <span class="o">=&gt;</span> <span class="s1">'categories#show'</span><span class="p">,</span> <span class="ss">:id</span> <span class="o">=&gt;</span> <span class="mi">1</span>
+
+<span class="k">end</span>
+</pre></div>
+
+<p>Now we can link to this method from the 'orders/index' page.</p>
+
+<p><code>app/views/orders/index.html.erb</code></p>
+
+<div class="highlight"><pre><span class="o">&lt;</span><span class="nb">p</span> <span class="nb">id</span><span class="o">=</span><span class="s2">"notice"</span><span class="o">&gt;&lt;</span><span class="sx">%= notice %&gt;&lt;/p&gt;</span>
+
+<span class="sx">&lt;h1&gt;Orders&lt;/h1&gt;</span>
+<span class="sx">&lt;table class=</span><span class="s2">"table table-striped"</span><span class="o">&gt;</span>
+  <span class="o">&lt;</span><span class="n">thead</span><span class="o">&gt;</span>
+    <span class="o">&lt;</span><span class="n">tr</span><span class="o">&gt;</span>
+      <span class="o">&lt;</span><span class="n">th</span><span class="o">&gt;</span><span class="no">ID</span><span class="o">&lt;</span><span class="sr">/th&gt;</span>
+<span class="sr">      &lt;th&gt;Customer Name&lt;/</span><span class="n">th</span><span class="o">&gt;</span>
+      <span class="o">&lt;</span><span class="n">th</span><span class="o">&gt;</span><span class="no">Total</span><span class="o">&lt;</span><span class="sr">/th&gt;</span>
+<span class="sr">      &lt;th&gt;2CO Order Number&lt;/</span><span class="n">th</span><span class="o">&gt;</span>
+      <span class="o">&lt;</span><span class="n">th</span><span class="o">&gt;</span><span class="no">Status</span><span class="o">&lt;</span><span class="sr">/th&gt;</span>
+<span class="sr">      &lt;th&gt;Actions&lt;/</span><span class="n">th</span><span class="o">&gt;</span>
+    <span class="o">&lt;</span><span class="sr">/tr&gt;</span>
+<span class="sr">  &lt;/</span><span class="n">thead</span><span class="o">&gt;</span>
+  <span class="o">&lt;</span><span class="n">tbody</span><span class="o">&gt;</span>
+    <span class="o">&lt;</span><span class="sx">% @orders.each </span><span class="k">do</span> <span class="o">|</span><span class="n">order</span><span class="o">|</span> <span class="sx">%&gt;</span>
+<span class="sx">      &lt;tr&gt;</span>
+        <span class="o">&lt;</span><span class="n">td</span><span class="o">&gt;&lt;</span><span class="sx">%= link_to order.id, order_path(order) %&gt;&lt;/td&gt;</span>
+<span class="sx">        &lt;td&gt;&lt;%=</span> <span class="n">order</span><span class="o">.</span><span class="n">card_holder_name</span> <span class="sx">%&gt;&lt;/td&gt;</span>
+        <span class="o">&lt;</span><span class="n">td</span><span class="o">&gt;&lt;</span><span class="sx">%= order.total %&gt;&lt;/td&gt;</span>
+<span class="sx">        &lt;td&gt;&lt;%=</span> <span class="n">order</span><span class="o">.</span><span class="n">order_number</span> <span class="sx">%&gt;&lt;/td&gt;</span>
+        <span class="o">&lt;</span><span class="n">td</span><span class="o">&gt;&lt;</span><span class="sx">%= order.status %&gt;&lt;/td&gt;</span>
+<span class="sx">        &lt;td&gt;</span>
+<span class="sx">          &lt;%=</span> <span class="n">link_to</span> <span class="s1">'Destroy'</span><span class="p">,</span> <span class="n">order_path</span><span class="p">(</span><span class="n">order</span><span class="p">),</span> <span class="ss">:method</span> <span class="o">=&gt;</span> <span class="ss">:delete</span><span class="p">,</span> <span class="ss">:confirm</span> <span class="o">=&gt;</span> <span class="s1">'Are you sure?'</span><span class="p">,</span> <span class="ss">:class</span> <span class="o">=&gt;</span> <span class="s1">'btn btn-mini btn-danger'</span> <span class="sx">%&gt;</span>
+<span class="sx">          &lt;%= link_to 'Refund', refund_path(order), :confirm =&gt;</span> <span class="s1">'Are you sure?'</span><span class="p">,</span> <span class="ss">:class</span> <span class="o">=&gt;</span> <span class="s1">'btn btn-mini btn-danger'</span> <span class="sx">%&gt;</span>
+<span class="sx">        &lt;/td&gt;</span>
+      <span class="o">&lt;</span><span class="sr">/tr&gt;</span>
+<span class="sr">    &lt;% end %&gt;</span>
+<span class="sr">  &lt;/</span><span class="n">tbody</span><span class="o">&gt;</span>
+<span class="o">&lt;</span><span class="sr">/table&gt;</span>
+</pre></div>
+
+<p>As you can see, all we did here is add the "Refund" button which links to our new <code>refund_path</code> route.</p>
+
+<div class="highlight"><pre>  <span class="o">&lt;</span><span class="sx">%= link_to 'Refund', refund_path(order), :confirm =</span><span class="o">&gt;</span> <span class="s1">'Are you sure?'</span><span class="p">,</span> <span class="ss">:class</span> <span class="o">=&gt;</span> <span class="s1">'btn btn-mini btn-danger'</span> <span class="o">%&gt;</span>
+</pre></div>
+
+<p>So now our page has the refund option for each order and when clicked, will return the response from 2Checkout's API.</p>
+
+<p><img src="http://github.com/2checkout/2checkout-rails-tutorial/raw/master/img/8.png" alt=""></p>
+
+<h2>Conclusion</h2>
+
+<p>Our application is fully integrated! Buyers can pay for their orders and we register the order in our admin. We update the order based on the Fraud Status Changed INS message, and we provided the site admin with the ability to refund an order using 2Checkout's back office API.</p>
+      </section>
+    </div>
+
+    <!-- FOOTER  -->
+    <div id="footer_wrap" class="outer">
+      <footer class="inner">
+        <p class="copyright">2Checkout Ruby Tutorial maintained by <a href="https://github.com/2Checkout">2Checkout</a></p>
+        <p>Published with <a href="http://pages.github.com">GitHub Pages</a></p>
+      </footer>
+    </div>
+
+    
+
+  </body>
+</html>
